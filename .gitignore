@@ -1,0 +1,8 @@
+/workspace/*
+!/workspace/Makefile
+/env/.env.local
+/env/.env.user.local
+/env/.env.*.local
+/env/.env.user.*
+/env/generated/
+/target/

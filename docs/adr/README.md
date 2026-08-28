@@ -45,6 +45,9 @@ rg -n 'XXX|YYYY-MM-DD|PLACEHOLDER|À VÉRIFIER' docs/adr/XXX-CATEGORIE-titre-dec
 | ADR | Titre | Statut | Date | Domaine |
 |---|---|---|---|---|
 | [101](./101-ARCH-adoption-langchain4j-couche-provider.md) | Adoption de LangChain4j comme couche d’implémentation des fournisseurs LLM et embeddings | Proposé | 2026-08-27 | Architecture des fournisseurs IA |
+| [102](./102-ARCH-structure-java-transformation-pdf-markdown.md) | Structure Java pour la transformation locale de PDF en Markdown | Proposé | 2026-08-27 | Architecture de la transformation documentaire |
+| [103](./103-ARCH-cli-picocli-architecture-hexagonale.md) | CLI Picocli et architecture hexagonale | Proposé | 2026-08-27 | Interface en ligne de commande |
+| [104](./104-ARCH-transformation-revues-neosante.md) | Transformation des revues Néosanté de la collection PDF vers Markdown | Proposé | 2026-08-28 | Transformation documentaire Néosanté |
 
 ### INFRA — Infrastructure (200–299)
 
@@ -89,7 +92,7 @@ Aucun ADR.
 | Préfixe | Plage | Domaine | Prochain numéro disponible |
 |---|---:|---|---:|
 | `META` | 000–099 | Gouvernance | 004 |
-| `ARCH` | 100–199 | Architecture de la bibliothèque | 102 |
+| `ARCH` | 100–199 | Architecture de la bibliothèque | 105 |
 | `INFRA` | 200–299 | Infrastructure | 200 |
 | `SEC` | 300–399 | Sécurité et conformité | 300 |
 | `DATA` | 400–499 | Données et base de connaissances | 400 |
@@ -105,9 +108,9 @@ Les trous de numérotation ne sont pas réutilisés. Le tableau est mis à jour 
 
 | Indicateur | Valeur |
 |---|---:|
-| Total | 8 |
+| Total | 11 |
 | Brouillons | 0 |
-| Proposés | 7 |
+| Proposés | 10 |
 | Acceptés | 1 |
 | Rejetés | 0 |
 | Dépréciés | 0 |

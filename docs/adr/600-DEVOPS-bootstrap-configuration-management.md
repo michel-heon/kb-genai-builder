@@ -56,12 +56,16 @@ Adopter une configuration en couches, validée avant exécution, avec séparatio
 
 Du niveau le plus faible au plus fort :
 
-1. `config/default.env` — valeurs publiques, sûres et versionnées ;
-2. `.env.local` — surcharges propres au poste, ignorées par Git ;
-3. variables du processus — surcharges CI ou opérateur ;
-4. arguments explicites de la commande — uniquement pour l’exécution courante.
+1. `env/default.env` — valeurs publiques, sûres et versionnées ;
+2. `env/.env.<environnement>` — profil public nommé, par exemple `env/.env.neosante` ;
+3. `env/.env.local` — surcharges propres au poste, ignorées par Git ;
+4. `env/.env.user.local` — secrets propres au poste, ignorés par Git ;
+5. variables du processus — surcharges CI ou opérateur ;
+6. arguments explicites de la commande — uniquement pour l’exécution courante.
 
-Le fichier `.env.local.example` est versionné et décrit les noms de variables sans valeur sensible. Une valeur requise n’obtient pas de valeur factice susceptible de déclencher un appel externe par erreur.
+Les fichiers `env/.env.local.example` et `env/.env.user.local.example` sont versionnés et décrivent les noms de variables sans valeur sensible. Une valeur requise n’obtient pas de valeur factice susceptible de déclencher un appel externe par erreur.
+
+`make bootstrap` génère les projections nécessaires aux consommateurs: `java.properties`, `maven.properties`, `make.mk`, `python.py` et `environment.env`. Elles sont toutes produites depuis les variables `KB_GENAI_BUILDER_*` déclarées, y compris les secrets explicitement requis par les consommateurs. Ces fichiers sont locaux, ignorés par Git et protégés en lecture seule pour l’utilisateur. Les commandes d’outillage sont validées par le bootstrap puis résolues par défaut par le système (`java`, `mvn`, `python3`); elles ne sont pas inventées comme variables de configuration.
 
 ### Catégories de configuration
 
@@ -79,7 +83,8 @@ Les règles structurantes — schéma de métadonnées, sémantique de provenanc
 ### Secrets
 
 - aucun jeton, mot de passe, certificat privé ou chaîne d’accès n’est versionné ;
-- `.env.local` et tout artefact généré contenant un secret sont ignorés par Git ;
+- `env/.env.user.local` contient les secrets locaux, notamment `RCLONE_CONFIG_PASS` lorsqu’une configuration rclone chiffrée est utilisée ;
+- `env/.env.local`, `env/.env.user.local` et tout artefact généré contenant un secret sont ignorés par Git ;
 - la CI injecte les secrets depuis son mécanisme sécurisé, sans les recopier dans un artefact publié ;
 - les journaux affichent le nom d’une variable manquante, jamais sa valeur ;
 - les exemples utilisent des marqueurs inertes ;
@@ -90,14 +95,17 @@ Les règles structurantes — schéma de métadonnées, sémantique de provenanc
 La commande stable est `make bootstrap`, conformément à l’ADR-602. Elle doit :
 
 1. vérifier les outils requis par l’implémentation réelle ;
-2. créer `.env.local` depuis l’exemple uniquement s’il est absent ;
-3. positionner des permissions restrictives lorsque la plateforme le permet ;
-4. valider les noms, types, formats, chemins et combinaisons de paramètres ;
-5. créer les répertoires de travail locaux explicitement prévus ;
-6. ne télécharger aucun corpus et ne contacter aucun service externe sans option explicite ;
-7. être idempotente et ne modifier aucune configuration globale du poste.
+2. créer `env/.env.local` depuis l’exemple uniquement s’il est absent ;
+3. créer `env/.env.user.local` depuis l’exemple uniquement s’il est absent ;
+4. positionner des permissions restrictives lorsque la plateforme le permet ;
+5. valider les noms, types, formats, chemins et combinaisons de paramètres sans afficher de secret ;
+6. créer les répertoires de travail locaux explicitement prévus ;
+7. ne télécharger aucun corpus et ne contacter aucun service externe sans option explicite ;
+8. être idempotente et ne modifier aucune configuration globale du poste.
 
 Une commande séparée `make config-check` valide la configuration sans lancer l’ingestion ni la publication.
+
+Un profil nommé est sélectionné par `make bootstrap <environnement>`, par exemple `make bootstrap neosante`. Le bootstrap charge alors `env/default.env`, `env/.env.neosante`, puis `env/.env.user.neosante`. Dans ce mode, les fichiers `.env.local` et `.env.user.local` ne sont pas chargés; le fichier utilisateur du profil est obligatoire. Un profil ou sa configuration utilisateur absent provoque un échec explicite et aucune variable de profil n’est inventée.
 
 ### Validation et sûreté
 
@@ -168,8 +176,8 @@ Réduit le travail initial, mais crée rapidement des divergences entre ingestio
 |---|---|---|---|
 | 1 | Faire accepter cet ADR et l’ADR-602 | Revue des stakeholders | À faire |
 | 2 | Définir le schéma minimal des variables réellement consommées | Revue sans variable spéculative | À faire |
-| 3 | Créer `config/default.env` et `.env.local.example` | Analyse de secrets et documentation | À faire |
-| 4 | Implémenter `bootstrap` et `config-check` | Deux exécutions idempotentes | À faire |
+| 3 | Créer `env/default.env` et `env/.env.local.example` | Analyse de secrets et documentation | Réalisé le 2026-08-27 |
+| 4 | Implémenter `bootstrap` et `config-check` | Deux exécutions idempotentes | Réalisé le 2026-08-27 |
 | 5 | Intégrer la validation à la CI | Configuration invalide correctement rejetée | À faire |
 
 ## Critères de succès et validation

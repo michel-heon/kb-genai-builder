@@ -15,7 +15,7 @@ REQUESTED_BOOTSTRAP_ENVIRONMENT := $(firstword $(filter $(ENVIRONMENT_PROFILES),
 
 -include $(GENERATED_MAKE_CONFIG)
 
-.PHONY: bootstrap bootstrap-bash bootstrap-java bootstrap-make bootstrap-maven bootstrap-python build config-check generated-config help pdf-to-markdown run-pdf-to-markdown test workspace-mount $(ENVIRONMENT_PROFILES) bootstrap-%
+.PHONY: bootstrap bootstrap-bash bootstrap-java bootstrap-make bootstrap-maven bootstrap-python build config-check generated-config help pdf-to-markdown run-pdf-to-markdown run-extract-neosante-relevant-articles test workspace-mount $(ENVIRONMENT_PROFILES) bootstrap-%
 
 help:
 	@printf '%s\n' \
@@ -75,6 +75,11 @@ run-pdf-to-markdown: generated-config
 	@test -n "$(PDF)" || { printf '%s\n' 'ERROR: indiquez PDF=<chemin-du-fichier.pdf>.' >&2; exit 2; }
 	@test -f "$(EXECUTABLE_JAR)" || { printf '%s\n' 'ERROR: JAR absent; exécutez make package.' >&2; exit 1; }
 	@$(JAVA_BIN) -jar "$(EXECUTABLE_JAR)" transform-pdf "$(PDF)" $(if $(OUTPUT),--output "$(OUTPUT)")
+
+run-extract-neosante-relevant-articles: package generated-config
+	@test -n "$(PDF)" || { printf '%s\n' 'ERROR: indiquez PDF=<chemin-du-fichier.pdf>.' >&2; exit 2; }
+	@test -n "$(OUTPUT_DIRECTORY)" || { printf '%s\n' 'ERROR: indiquez OUTPUT_DIRECTORY=<répertoire-cible>.' >&2; exit 2; }
+	@$(JAVA_BIN) -jar "$(EXECUTABLE_JAR)" extract-neosante-relevant-articles "$(PDF)" --output-directory "$(OUTPUT_DIRECTORY)"
 
 test: generated-config
 	@$(MAVEN_BIN) --no-transfer-progress test

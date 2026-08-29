@@ -15,6 +15,7 @@ public final class PdfToMarkdownCommand {
     public static void main(String[] args) {
         int exitCode = new CommandLine(new PdfToMarkdownCommand())
                 .addSubcommand(new TransformPdfCommand(new LangChain4jPdfToMarkdownTransformer()))
+                .addSubcommand(new ExtractNeosanteRelevantArticlesCommand())
                 .execute(args);
         System.exit(exitCode);
     }

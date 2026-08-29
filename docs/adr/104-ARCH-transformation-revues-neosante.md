@@ -81,7 +81,17 @@ La transformation des revues Néosanté est orchestrée par le `Makefile` du ré
 8. Le `Makefile` limite l’exécution à cinq transformations parallèles (`-P5`).
 9. Une erreur de transformation provoque un échec de la cible `markdown`.
 
-La règle est destinée aux fichiers sous `collection/`; elle ne transforme pas les fichiers Markdown déjà présents comme s’ils étaient des sources. La transformation reste locale et utilise la CLI Java décrite par les ADR-102 et 103. Aucun appel à un modèle distant, aucune indexation et aucune publication vers un service externe ne font partie de cette décision.
+La règle est destinée aux fichiers sous `collection/`; elle ne transforme pas les fichiers Markdown déjà présents comme s’ils étaient des sources. La transformation générale reste locale et utilise la CLI Java décrite par les ADR-102 et 103. L’extraction sémantique spécialisée décrite ci-dessous constitue un second flux, explicitement limité aux revues Néosanté.
+
+### Extraction sélective spécialisée Néosanté
+
+La cible `neosante-articles-markdown` traite les PDF du corpus de qualification afin d’extraire les passages dont le sujet principal est la **biologie totale** ou le **décodage biologique**. Elle appelle la cible racine `run-extract-neosante-relevant-articles`, laquelle invoque la sous-commande `extract-neosante-relevant-articles`.
+
+Les classes de cette capacité appartiennent au package `net.cotechnoe.kb.genai.document.neosante`, afin d’éviter de présenter cette logique comme un service générique de traitement d’articles. Un modèle distant compatible OpenAI est utilisé uniquement pour classifier la pertinence sémantique des pages non vides ; l’extraction du texte PDF et l’écriture Markdown restent locales.
+
+Chaque résultat conserve le fichier source, la plage de pages, les thèmes et le motif de sélection dans son en-tête Markdown. L’implémentation courante fusionne les pages pertinentes adjacentes : elle ne garantit donc pas encore la détection de frontières entre deux articles pertinents consécutifs.
+
+Les identifiants d’accès au modèle sont lus depuis la configuration générée par le bootstrap ; ils ne sont ni journalisés, ni écrits dans les Markdown, ni versionnés. Une erreur de classification ou de lecture du PDF échoue la revue concernée et ne produit pas son marqueur `.complete`.
 
 ### Contrat d’arborescence
 
@@ -90,7 +100,8 @@ La règle est destinée aux fichiers sous `collection/`; elle ne transforme pas 
 | Entrée | `workspace/08-KB-NéoSanté/collection/` | Fichiers réguliers avec extension `.pdf` |
 | Sortie | `workspace/08-KB-NéoSanté/markdown/collection/` | Un `.md` par PDF, même chemin relatif |
 | Test | `workspace/08-KB-NéoSanté/collection-test/` | Corpus admis, sélectionné par `SOURCE_DIR` |
-| Commande | `make -C workspace markdown` | Transformation de la collection configurée |
+| Commande | `make -C workspace markdown` | Transformation locale de la collection configurée |
+| Extraction sélective | `make -C workspace neosante-articles-markdown` | Extraction sémantique dédiée aux revues Néosanté |
 | Parallélisme | 5 | Cinq workers maximum |
 
 Pour `collection/sous-dossier/revue.pdf`, la sortie attendue est `markdown/collection/sous-dossier/revue.md`.
@@ -186,7 +197,10 @@ Réduit potentiellement la durée, mais risque de saturer Java, le disque ou le 
 - le nombre de Markdown produits correspond au nombre de PDF transformables ;
 - le nombre maximal de transformations simultanées reste égal à 5 ;
 - une erreur est visible et fait échouer la commande globale ;
-- aucun secret ni appel réseau n’est requis.
+- l’extraction sélective ne retient que les pages dont le sujet principal concerne les thèmes cibles ;
+- ses Markdown indiquent la source et les pages sélectionnées ;
+- aucun secret n’est affiché ou versionné ;
+- l’appel distant, limité à la classification sémantique du flux Néosanté, est explicitement configuré.
 
 ## Déclencheurs de réévaluation
 
@@ -194,7 +208,9 @@ Réduit potentiellement la durée, mais risque de saturer Java, le disque ou le 
 - passage à un autre format que PDF ;
 - dépassement mesuré du plafond de cinq workers ;
 - besoin de supprimer automatiquement les Markdown orphelins ;
-- ajout d’une étape d’indexation ou de publication distante.
+- ajout d’une étape d’indexation ou de publication distante ;
+- besoin de distinguer deux articles pertinents présents sur des pages adjacentes ;
+- élargissement de l’extraction sémantique à une autre collection que Néosanté.
 
 ## Traçabilité et liens
 

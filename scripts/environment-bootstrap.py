@@ -181,6 +181,18 @@ def main() -> int:
         validate_tools()
         values, config_paths = load_configuration(args.environment)
         required = ("KB_GENAI_BUILDER_WORKSPACE_DIR", "KB_GENAI_BUILDER_MARKDOWN_INPUT_DIR", "KB_GENAI_BUILDER_MARKDOWN_OUTPUT_DIR", "KB_GENAI_BUILDER_RCLONE_REMOTE", "KB_GENAI_BUILDER_RCLONE_READ_ONLY")
+        if args.environment == "dico":
+            required += (
+                "KB_GENAI_BUILDER_CODEBIO_WORK_DIR",
+                "KB_GENAI_BUILDER_CODEBIO_TABLE_OF_CONTENTS_PDF",
+                "KB_GENAI_BUILDER_CODEBIO_TABLE_OF_CONTENTS_MARKDOWN",
+                "KB_GENAI_BUILDER_CODEBIO_DICTIONARY_PDF",
+                "KB_GENAI_BUILDER_CODEBIO_ENTRY_STRUCTURE",
+                "KB_GENAI_BUILDER_CODEBIO_ENTRY",
+                "KB_GENAI_BUILDER_CODEBIO_ENTRY_OUTPUT_DIR",
+                "KB_GENAI_BUILDER_CODEBIO_INDEX_RESOLUTIONS",
+                "KB_GENAI_BUILDER_CODEBIO_FAILURE_LIST",
+            )
         for name in required:
             if not values.get(name):
                 raise RuntimeError(f"Variable requise absente : {name}")
@@ -197,6 +209,20 @@ def main() -> int:
         values["KB_GENAI_BUILDER_WORKSPACE_DIR"] = workspace
         values["KB_GENAI_BUILDER_MARKDOWN_INPUT_DIR"] = input_dir
         values["KB_GENAI_BUILDER_MARKDOWN_OUTPUT_DIR"] = output_dir
+        if args.environment == "dico":
+            for name in (
+                "KB_GENAI_BUILDER_CODEBIO_WORK_DIR",
+                "KB_GENAI_BUILDER_CODEBIO_TABLE_OF_CONTENTS_PDF",
+                "KB_GENAI_BUILDER_CODEBIO_TABLE_OF_CONTENTS_MARKDOWN",
+                "KB_GENAI_BUILDER_CODEBIO_DICTIONARY_PDF",
+                "KB_GENAI_BUILDER_CODEBIO_ENTRY_STRUCTURE",
+                "KB_GENAI_BUILDER_CODEBIO_ENTRY_OUTPUT_DIR",
+                "KB_GENAI_BUILDER_CODEBIO_INDEX_RESOLUTIONS",
+                "KB_GENAI_BUILDER_CODEBIO_FAILURE_LIST",
+            ):
+                values[name] = resolve_path(values[name])
+            Path(values["KB_GENAI_BUILDER_CODEBIO_WORK_DIR"]).mkdir(parents=True, exist_ok=True)
+            Path(values["KB_GENAI_BUILDER_CODEBIO_ENTRY_OUTPUT_DIR"]).mkdir(parents=True, exist_ok=True)
         Path(workspace).mkdir(parents=True, exist_ok=True)
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         write_generated(values)

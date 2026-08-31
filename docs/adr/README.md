@@ -59,7 +59,9 @@ Aucun ADR.
 
 ### DATA — Données et base de connaissances (400–499)
 
-Aucun ADR.
+| ADR | Titre | Statut | Date | Domaine |
+|---|---|---|---|---|
+| [400](./400-DATA-transformation-ocr-dictionnaires-codebio.md) | Transformation locale et traçable des dictionnaires CodeBio | Proposé | 2026-08-29 | Transformation des données documentaires |
 
 ### API — Interfaces et intégrations (500–599)
 
@@ -95,7 +97,7 @@ Aucun ADR.
 | `ARCH` | 100–199 | Architecture de la bibliothèque | 105 |
 | `INFRA` | 200–299 | Infrastructure | 200 |
 | `SEC` | 300–399 | Sécurité et conformité | 300 |
-| `DATA` | 400–499 | Données et base de connaissances | 400 |
+| `DATA` | 400–499 | Données et base de connaissances | 401 |
 | `API` | 500–599 | Interfaces et intégrations | 500 |
 | `DEVOPS` | 600–699 | Automatisation et exploitation | 612 |
 | `TEST` | 700–799 | Tests et qualité | 700 |
@@ -108,9 +110,9 @@ Les trous de numérotation ne sont pas réutilisés. Le tableau est mis à jour 
 
 | Indicateur | Valeur |
 |---|---:|
-| Total | 11 |
+| Total | 12 |
 | Brouillons | 0 |
-| Proposés | 10 |
+| Proposés | 11 |
 | Acceptés | 1 |
 | Rejetés | 0 |
 | Dépréciés | 0 |
@@ -139,4 +141,4 @@ Lorsqu’ils sont pertinents, les ADR doivent répondre explicitement aux questi
 | Déprécié | `deprecated` |
 | Supersédé | `superseded` |
 
-**Dernière mise à jour** : 2026-08-27
+**Dernière mise à jour** : 2026-08-29

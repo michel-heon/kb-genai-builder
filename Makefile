@@ -8,14 +8,15 @@ JAVA_BIN ?= java
 MAVEN_BIN ?= mvn
 PYTHON_BIN ?= python3
 JAVA_SOURCES := $(shell find src/main/java src/test/java -type f -name '*.java' 2>/dev/null)
-ENVIRONMENT_INPUTS := $(wildcard env/default.env env/.env.local env/.env.user.local env/.env.user.* env/generated/make.mk env/generated/java.properties)
-BUILD_INPUTS := pom.xml $(JAVA_SOURCES) $(ENVIRONMENT_INPUTS)
+# La configuration générée est lue à l'exécution, sans nécessiter de reconstruire le JAR.
+# Le package Maven ne redémarre donc que lorsque le code Java (ou le pom Maven) est plus récent.
+BUILD_INPUTS := pom.xml $(JAVA_SOURCES)
 ENVIRONMENT_PROFILES := $(patsubst env/.env.%,%,$(filter-out env/.env.local env/.env.local.example env/.env.user.local env/.env.user.local.example env/.env.user.% env/.env.%.local,$(wildcard env/.env.*)))
 REQUESTED_BOOTSTRAP_ENVIRONMENT := $(firstword $(filter $(ENVIRONMENT_PROFILES),$(MAKECMDGOALS)))
 
 -include $(GENERATED_MAKE_CONFIG)
 
-.PHONY: bootstrap bootstrap-bash bootstrap-java bootstrap-make bootstrap-maven bootstrap-python build config-check generated-config help pdf-to-markdown run-pdf-to-markdown run-extract-neosante-relevant-articles test workspace-mount $(ENVIRONMENT_PROFILES) bootstrap-%
+.PHONY: bootstrap bootstrap-bash bootstrap-java bootstrap-make bootstrap-maven bootstrap-python build config-check generated-config help pdf-to-markdown run-pdf-to-markdown run-extract-neosante-relevant-articles teams-app-sso-configure teams-app-publish test workspace-mount $(ENVIRONMENT_PROFILES) bootstrap-%
 
 help:
 	@printf '%s\n' \
@@ -31,6 +32,8 @@ help:
 		'  config-check     Valider la configuration rclone sans monter le dossier' \
 		'  package          Construire le JAR exécutable' \
 		'  pdf-to-markdown  Alias de build; variables: PDF=<source> OUTPUT=<cible>' \
+		'  teams-app-sso-configure  Configurer le SSO Entra ID du canal Teams; variables: DRY_RUN=true GRANT_ADMIN_CONSENT=true' \
+		'  teams-app-publish       Publier le manifeste Teams via Microsoft Graph (az rest); variables: DRY_RUN=true' \
 		'  test             Exécuter les tests Maven sans réseau' \
 		'  workspace-mount  Monter la KB dans workspace/08-KB-NéoSanté/ (lecture-écriture)'
 
@@ -83,6 +86,12 @@ run-extract-neosante-relevant-articles: package generated-config
 
 test: generated-config
 	@$(MAVEN_BIN) --no-transfer-progress test
+
+teams-app-sso-configure: bootstrap-python
+	@$(PYTHON_BIN) ./scripts/teams-app-sso-configure.py $(if $(DRY_RUN),--dry-run) $(if $(GRANT_ADMIN_CONSENT),--grant-admin-consent)
+
+teams-app-publish: bootstrap-python
+	@$(PYTHON_BIN) ./scripts/teams-app-publish.py $(if $(DRY_RUN),--dry-run)
 
 config-check:
 	@./scripts/workspace-mount.sh --check

@@ -11,10 +11,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.Normalizer;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
@@ -35,7 +35,9 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
     private static final int PDF_PAGE_OFFSET = 105;
     private static final Pattern TABLE_OF_CONTENTS_ENTRY = Pattern.compile(
             "(?m)^-\\s+(.+?)\\s+—\\s+p\\.\\s+(\\d+)\\s*$");
-    private static final Pattern ENTRY_HEADING = Pattern.compile("(?m)^\\s*1\\s+(.+?)\\s*$");
+    private static final Pattern LINE = Pattern.compile("(?m)^.*$");
+    private static final Pattern ALIAS_AND_TARGET = Pattern.compile(
+            "^([\\p{L}\\p{N}]{2,10})\\s*[-=]+\\s*(.+)$");
     private static final Pattern FOOTER = Pattern.compile("^\\s*\\d+\\s*$");
     private static final Pattern SECTION_HEADING = Pattern.compile("^[A-ZÀ-ÖØ-Þ][A-ZÀ-ÖØ-Þ ]{2,}:?$");
     private static final Pattern INLINE_SECTION_HEADING = Pattern.compile(
@@ -43,6 +45,8 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
     private static final Pattern RESOLUTION_INDEXED_TERM = Pattern.compile("resolution\\.(\\d+)\\.indexed_term");
     private static final Pattern INDEX_REDIRECT = Pattern.compile("^(.+?)\\s*-+\\s*(?:>|\\+)\\s*(.+)$");
     private static final String MANUALLY_VERIFIED = "manually_verified";
+    private static final Map<String, String> SECTION_LABEL_CORRECTIONS = Map.of(
+            "deftnition", "DÉFINITION");
     private static final Set<String> DEFAULT_SECTION_TYPES = Set.of(
             "definition", "causes", "symptomes", "conflits", "fonction", "ethologie", "mots", "verbes", "remedes");
 
@@ -75,15 +79,10 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
                     : Optional.empty();
             IndexedEntry sourceEntry = resolution.map(value -> findEntry(entries, value.canonicalEntry()))
                     .orElseGet(() -> indexRedirect.map(IndexRedirect::canonicalEntry).orElse(requestedEntry));
-            IndexedEntry nextEntry = entries.stream()
-                    .filter(entry -> entry.page() > sourceEntry.page())
-                    .min(Comparator.comparingInt(IndexedEntry::page))
-                    .orElse(null);
-
             try (PDDocument document = Loader.loadPDF(dictionary.toFile())) {
                 try {
-                    String entryText = extractEntry(document, sourceEntry.page() + PDF_PAGE_OFFSET, sourceEntry.title(),
-                            nextEntry == null ? null : nextEntry.title());
+                    String entryText = extractEntry(
+                            document, sourceEntry.page() + PDF_PAGE_OFFSET, sourceEntry.title(), entries);
                     if (resolution.isPresent()) {
                         return new MarkdownDocument(dictionary,
                                 formatReference(requestedEntry, sourceEntry, entryText, resolution.orElseThrow()));
@@ -95,6 +94,17 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
                     return new MarkdownDocument(dictionary, format(requestedEntry, entryText, sectionTypes));
                 } catch (PdfTransformationException exception) {
                     if (resolution.isEmpty() && isMissingAutonomousHeading(exception, requestedEntry.title())) {
+                        Optional<DetectedIndexReference> detectedReference = findContainingEntryReference(
+                                document, requestedEntry, entries);
+                        if (detectedReference.isPresent()) {
+                            DetectedIndexReference reference = detectedReference.orElseThrow();
+                            IndexedEntry canonicalEntry = reference.canonicalEntry();
+                            String canonicalText = extractEntry(document,
+                                    canonicalEntry.page() + PDF_PAGE_OFFSET,
+                                    canonicalEntry.title(), entries);
+                            return new MarkdownDocument(dictionary, formatDetectedIndexReference(
+                                    requestedEntry, reference, canonicalText, sectionTypes));
+                        }
                         return new MarkdownDocument(dictionary, formatUnresolvedIndexReference(requestedEntry));
                     }
                     throw exception;
@@ -167,29 +177,49 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
                 + "> Aucun contenu n'est généré afin de ne pas inventer de correspondance ou d'information médicale.\n";
     }
 
+    static String formatDetectedIndexReference(IndexedEntry indexedEntry, DetectedIndexReference reference,
+            String canonicalText, Set<String> sectionTypes) {
+        IndexedEntry canonicalEntry = reference.canonicalEntry();
+        return "# " + indexedEntry.title() + "\n\n"
+                + "> Type : référence d'index résolue automatiquement ; le terme indexé a été retrouvé "
+                + "dans le contenu d'une entrée canonique au voisinage de la page indexée.\n"
+                + "> Termes de recherche : " + indexedEntry.title() + "; " + canonicalEntry.title() + ".\n"
+                + "> Source de l'index : *Dictionnaire des codes biologies des maladies*, p. "
+                + indexedEntry.page() + ".\n"
+                + "> Entrée canonique : " + canonicalEntry.title() + ", p. " + canonicalEntry.page() + ".\n"
+                + "> Statut de vérification : correspondance textuelle contrôlée automatiquement dans la source OCR.\n\n"
+                + "## Extrait de correspondance\n\n"
+                + "> " + reference.evidenceText() + "\n\n"
+                + "## Contenu de l'entrée canonique\n\n"
+                + formatBody(canonicalText, sectionTypes) + "\n";
+    }
+
     private static boolean isMissingAutonomousHeading(PdfTransformationException exception, String title) {
         return exception.getMessage().equals("Entrée CodeBio introuvable dans le dictionnaire : " + title);
     }
 
-    private static String extractEntry(PDDocument document, int firstPhysicalPage, String title, String nextTitle)
+    private static String extractEntry(PDDocument document, int expectedPhysicalPage, String title,
+            List<IndexedEntry> entries)
             throws IOException {
-        if (firstPhysicalPage > document.getNumberOfPages()) {
-            throw new PdfTransformationException("La page CodeBio demandée est hors du PDF : " + firstPhysicalPage);
+        if (expectedPhysicalPage > document.getNumberOfPages()) {
+            throw new PdfTransformationException("La page CodeBio demandée est hors du PDF : " + expectedPhysicalPage);
         }
 
         StringBuilder extracted = new StringBuilder();
         boolean started = false;
+        int firstPhysicalPage = Math.max(1, expectedPhysicalPage - 1);
+        int lastStartSearchPage = Math.min(document.getNumberOfPages(), expectedPhysicalPage + 1);
         for (int physicalPage = firstPhysicalPage; physicalPage <= document.getNumberOfPages(); physicalPage++) {
+            if (!started && physicalPage > lastStartSearchPage) {
+                break;
+            }
             String pageText = extractPage(document, physicalPage);
             String slice = started ? pageText : contentAfterHeading(pageText, title);
             if (slice == null) {
                 continue;
             }
             started = true;
-            int nextHeading = nextTitle == null ? -1 : indexOfHeading(slice, nextTitle);
-            if (nextHeading < 0) {
-                nextHeading = indexOfAnyEntryHeading(slice);
-            }
+            int nextHeading = indexOfAnyEntryHeading(slice, entries, title);
             extracted.append(nextHeading >= 0 ? slice.substring(0, nextHeading) : slice).append('\n');
             if (nextHeading >= 0) {
                 break;
@@ -215,20 +245,133 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
     }
 
     private static int indexOfHeading(String text, String title) {
-        Matcher headings = ENTRY_HEADING.matcher(text);
-        while (headings.find()) {
-            if (headingMatchesTitle(headings.group(1), title)) {
-                return headings.start();
+        Matcher lines = LINE.matcher(text);
+        while (lines.find()) {
+            if (headingMatchesTitle(headingCandidate(lines.group()), title)) {
+                return lines.start();
             }
         }
         return -1;
     }
 
     static boolean headingMatchesTitle(String heading, String title) {
-        String normalizedHeading = normalize(heading);
-        String normalizedTitle = normalize(title);
+        String normalizedHeading = normalizeTitleForComparison(headingCandidate(heading));
+        String normalizedTitle = normalizeTitleForComparison(title);
         return normalizedHeading.equals(normalizedTitle)
-                || normalizedHeading.matches(Pattern.quote(normalizedTitle) + " [a-z]{1,3}");
+                || normalizedHeading.matches(Pattern.quote(normalizedTitle)
+                        + "(?: [a-z0-9]{1,3}){1,3}");
+    }
+
+    private static Optional<DetectedIndexReference> findContainingEntryReference(PDDocument document,
+            IndexedEntry indexedEntry, List<IndexedEntry> entries) throws IOException {
+        int expectedPhysicalPage = indexedEntry.page() + PDF_PAGE_OFFSET;
+        StringBuilder pageWindow = new StringBuilder();
+        for (int page = Math.max(1, expectedPhysicalPage - 1);
+                page <= Math.min(document.getNumberOfPages(), expectedPhysicalPage + 1); page++) {
+            pageWindow.append(extractPage(document, page)).append('\n');
+        }
+        return findContainingEntryReference(pageWindow.toString(), indexedEntry, entries);
+    }
+
+    static Optional<DetectedIndexReference> findContainingEntryReference(String pageText,
+            IndexedEntry indexedEntry, List<IndexedEntry> entries) {
+        IndexedEntry currentEntry = null;
+        for (String line : pageText.lines().toList()) {
+            Optional<IndexedEntry> headingEntry = findHeadingEntry(line, indexedEntry.page(), entries);
+            boolean explicitHeading = line.trim().matches("^(?:[1j!]\\s+|[\\\\|]+\\s*).+");
+            if (headingEntry.isPresent() && explicitHeading) {
+                currentEntry = headingEntry.orElseThrow();
+                continue;
+            }
+            if (currentEntry != null && !sameTerm(currentEntry.title(), indexedEntry.title())
+                    && matchesIndexedEvidence(line, indexedEntry.title())) {
+                return Optional.of(new DetectedIndexReference(currentEntry, line.trim()));
+            }
+            if (headingEntry.isPresent()) {
+                currentEntry = headingEntry.orElseThrow();
+                continue;
+            }
+            Optional<String> pdfHeading = findExplicitPdfHeading(line);
+            if (pdfHeading.isPresent()) {
+                currentEntry = new IndexedEntry(pdfHeading.orElseThrow(), indexedEntry.page());
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Returns a genuine PDF entry heading that is absent from the structured OCR index. This is
+     * deliberately restricted to explicit heading markers so prose cannot become a canonical entry.
+     */
+    private static Optional<String> findExplicitPdfHeading(String line) {
+        String trimmed = line.trim();
+        if (!trimmed.matches("^(?:[1j!]\\s+|[\\\\|]+\\s*).+")) {
+            return Optional.empty();
+        }
+        String candidate = headingCandidate(line);
+        return looksLikeHeading(line, candidate) ? Optional.of(candidate) : Optional.empty();
+    }
+
+    private static boolean containsWholeNormalizedTerm(String text, String term) {
+        String normalizedText = " " + normalizeForEvidence(text) + " ";
+        String normalizedTerm = " " + normalizeForEvidence(term) + " ";
+        return normalizedText.contains(normalizedTerm);
+    }
+
+    private static Optional<IndexedEntry> findHeadingEntry(String line, int indexedPage, List<IndexedEntry> entries) {
+        String candidate = headingCandidate(line);
+        if (!looksLikeHeading(line, candidate)) {
+            return Optional.empty();
+        }
+        IndexedEntry bestEntry = null;
+        double bestScore = 0.0;
+        for (IndexedEntry entry : entries) {
+            if (Math.abs(entry.page() - indexedPage) > 1) {
+                continue;
+            }
+            double score = titleSimilarity(candidate, entry.title());
+            if (score > bestScore) {
+                bestEntry = entry;
+                bestScore = score;
+            }
+        }
+        return bestScore >= 0.92 ? Optional.of(bestEntry) : Optional.empty();
+    }
+
+    private static boolean looksLikeHeading(String rawLine, String candidate) {
+        String trimmed = rawLine.trim();
+        boolean explicitMarker = trimmed.matches("^(?:[1j!]\\s+|[\\\\|]+\\s*).+");
+        return !candidate.isBlank() && candidate.length() <= 100
+                && (explicitMarker || (!candidate.contains(":") && !candidate.matches(".*[.!?]$")));
+    }
+
+    private static boolean matchesIndexedEvidence(String line, String indexedTitle) {
+        if (containsWholeNormalizedTerm(line, indexedTitle)) {
+            return true;
+        }
+        Matcher aliasAndTarget = ALIAS_AND_TARGET.matcher(indexedTitle.trim());
+        if (aliasAndTarget.matches()) {
+            String alias = aliasAndTarget.group(1);
+            String normalizedLine = normalizeForEvidence(line);
+            if (normalizedLine.startsWith("syn ") && containsWholeNormalizedTerm(line, alias)) {
+                return true;
+            }
+            if (evidenceSimilarity(line, aliasAndTarget.group(2)) >= 0.90) {
+                return true;
+            }
+        }
+        return evidenceSimilarity(line, indexedTitle) >= 0.90;
+    }
+
+    private static double evidenceSimilarity(String line, String term) {
+        double bestScore = 0.0;
+        for (String fragment : line.split("[:,;]")) {
+            String candidate = fragment.trim();
+            if (candidate.length() >= 8) {
+                bestScore = Math.max(bestScore, titleSimilarity(candidate, term));
+            }
+        }
+        return bestScore;
     }
 
     private static int headingLength(String text, int headingStart) {
@@ -236,9 +379,20 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
         return (lineEnd < 0 ? text.length() : lineEnd + 1) - headingStart;
     }
 
-    private static int indexOfAnyEntryHeading(String text) {
-        Matcher headings = ENTRY_HEADING.matcher(text);
-        return headings.find() ? headings.start() : -1;
+    private static int indexOfAnyEntryHeading(String text, List<IndexedEntry> entries, String currentTitle) {
+        Matcher lines = LINE.matcher(text);
+        while (lines.find()) {
+            String candidate = headingCandidate(lines.group());
+            if (!looksLikeHeading(lines.group(), candidate)) {
+                continue;
+            }
+            for (IndexedEntry entry : entries) {
+                if (!sameTerm(entry.title(), currentTitle) && headingMatchesTitle(candidate, entry.title())) {
+                    return lines.start();
+                }
+            }
+        }
+        return -1;
     }
 
     private static IndexedEntry findEntry(List<IndexedEntry> entries, String term) {
@@ -248,17 +402,95 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
                 .orElseThrow(() -> new PdfTransformationException("Terme CodeBio absent de la table des matières : " + term));
     }
 
-    private static Optional<IndexRedirect> findIndexRedirect(List<IndexedEntry> entries, IndexedEntry indexedEntry) {
+    static Optional<IndexRedirect> findIndexRedirect(List<IndexedEntry> entries, IndexedEntry indexedEntry) {
         Matcher matcher = INDEX_REDIRECT.matcher(indexedEntry.title());
         if (!matcher.matches()) {
             return Optional.empty();
         }
-        String canonicalTitle = matcher.group(2).trim();
-        return Optional.of(new IndexRedirect(findEntry(entries, canonicalTitle)));
+        return findRedirectTarget(entries, matcher.group(2).trim(), indexedEntry.page())
+                .map(IndexRedirect::new);
+    }
+
+    /**
+     * Resolves an explicit index redirect without altering the source transcription. An exact title
+     * always wins; otherwise, only one sufficiently similar title at the indexed page (or an
+     * adjacent page) is accepted. The page constraint prevents a broad fuzzy match from selecting
+     * an unrelated medical entry.
+     */
+    static Optional<IndexedEntry> findRedirectTarget(List<IndexedEntry> entries, String targetTitle, int indexedPage) {
+        List<IndexedEntry> nearbyEntries = entries.stream()
+                .filter(entry -> Math.abs(entry.page() - indexedPage) <= 1)
+                .toList();
+        Optional<IndexedEntry> exact = nearbyEntries.stream()
+                .filter(entry -> sameTerm(entry.title(), targetTitle))
+                .findFirst();
+        if (exact.isPresent()) {
+            return exact;
+        }
+
+        List<IndexedEntry> candidates = nearbyEntries.stream()
+                .filter(entry -> isPlausibleRedirectTarget(entry.title(), targetTitle))
+                .toList();
+        return candidates.size() == 1 ? Optional.of(candidates.getFirst()) : Optional.empty();
+    }
+
+    private static boolean isPlausibleRedirectTarget(String candidate, String target) {
+        String normalizedCandidate = normalizeTitleForComparison(candidate);
+        String normalizedTarget = normalizeTitleForComparison(target);
+        return normalizedCandidate.equals(normalizedTarget)
+                || normalizedCandidate.startsWith(normalizedTarget + " ")
+                || titleSimilarity(candidate, target) >= 0.90;
     }
 
     private static boolean sameTerm(String left, String right) {
         return normalize(left).equals(normalize(right));
+    }
+
+    private static String headingCandidate(String line) {
+        return line.trim()
+                .replaceFirst("^(?:[1j!]\\s+|[\\\\|]+\\s*)", "")
+                .trim();
+    }
+
+    private static String normalizeTitleForComparison(String value) {
+        return normalize(value)
+                .replaceAll("[^\\p{L}\\p{N}]+", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private static double titleSimilarity(String left, String right) {
+        String normalizedLeft = normalizeTitleForComparison(left);
+        String normalizedRight = normalizeTitleForComparison(right);
+        if (normalizedLeft.isBlank() || normalizedRight.isBlank()) {
+            return 0.0;
+        }
+        if (normalizedLeft.equals(normalizedRight)) {
+            return 1.0;
+        }
+        int longest = Math.max(normalizedLeft.length(), normalizedRight.length());
+        return 1.0 - ((double) levenshteinDistance(normalizedLeft, normalizedRight) / longest);
+    }
+
+    private static int levenshteinDistance(String left, String right) {
+        int[] previous = new int[right.length() + 1];
+        int[] current = new int[right.length() + 1];
+        for (int index = 0; index <= right.length(); index++) {
+            previous[index] = index;
+        }
+        for (int leftIndex = 1; leftIndex <= left.length(); leftIndex++) {
+            current[0] = leftIndex;
+            for (int rightIndex = 1; rightIndex <= right.length(); rightIndex++) {
+                int substitution = previous[rightIndex - 1]
+                        + (left.charAt(leftIndex - 1) == right.charAt(rightIndex - 1) ? 0 : 1);
+                current[rightIndex] = Math.min(
+                        Math.min(current[rightIndex - 1] + 1, previous[rightIndex] + 1), substitution);
+            }
+            int[] swap = previous;
+            previous = current;
+            current = swap;
+        }
+        return previous[right.length()];
     }
 
     private static String normalize(String value) {
@@ -289,7 +521,7 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
                 if (!previousBlank && !markdown.isEmpty()) {
                     markdown.append('\n');
                 }
-                markdown.append("## ").append(inlineSection.group(1).trim()).append("\n\n");
+                markdown.append("## ").append(canonicalSectionLabel(inlineSection.group(1))).append("\n\n");
                 markdown.append(inlineSection.group(2).trim()).append('\n');
                 previousBlank = false;
                 continue;
@@ -299,7 +531,7 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
                 if (!previousBlank && !markdown.isEmpty()) {
                     markdown.append('\n');
                 }
-                markdown.append("## ").append(cleaned.replaceFirst(":$", "").trim()).append("\n\n");
+                markdown.append("## ").append(canonicalSectionLabel(cleaned.replaceFirst(":$", ""))).append("\n\n");
                 previousBlank = true;
                 continue;
             }
@@ -406,7 +638,12 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
     }
 
     private static boolean isKnownSection(String label, Set<String> sectionTypes) {
-        return sectionTypes.contains(normalize(label));
+        return sectionTypes.contains(normalize(canonicalSectionLabel(label)));
+    }
+
+    private static String canonicalSectionLabel(String label) {
+        String trimmed = label.trim();
+        return SECTION_LABEL_CORRECTIONS.getOrDefault(normalize(trimmed), trimmed);
     }
 
     private static Path validatePdf(Path pdf) {
@@ -438,6 +675,9 @@ public final class CodeBioDictionaryEntryPdfToMarkdownTransformer {
     record IndexResolution(String indexedTerm, String canonicalEntry, String evidenceText, String reviewStatus) {
     }
 
-    private record IndexRedirect(IndexedEntry canonicalEntry) {
+    record DetectedIndexReference(IndexedEntry canonicalEntry, String evidenceText) {
+    }
+
+    record IndexRedirect(IndexedEntry canonicalEntry) {
     }
 }

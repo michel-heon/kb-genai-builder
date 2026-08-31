@@ -6,11 +6,13 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(dirname -- "$script_dir")
 
 check_only=false
+refresh=false
 case ${1:-} in
     '') ;;
     --check) check_only=true ;;
+    --refresh) refresh=true ;;
     *)
-        printf 'Usage : %s [--check]\n' "$0" >&2
+        printf 'Usage : %s [--check|--refresh]\n' "$0" >&2
         exit 2
         ;;
 esac
@@ -116,13 +118,16 @@ fi
 
 mounted_fs=$(findmnt -rn -M "$workspace_dir" -o FSTYPE 2>/dev/null || true)
 if [ "$mounted_fs" = "fuse.rclone" ]; then
-    if find "$workspace_dir" -maxdepth 0 -print >/dev/null 2>&1; then
+    if [ "$refresh" = true ]; then
+        printf 'Rafraîchissement du montage OneDrive : démontage de %s\n' "$workspace_dir"
+        fusermount -uz "$workspace_dir"
+    elif find "$workspace_dir" -maxdepth 0 -print >/dev/null 2>&1; then
         printf 'Workspace déjà monté : %s\n' "$workspace_dir"
         exit 0
+    else
+        printf 'WARN: nettoyage d’un ancien montage rclone inaccessible : %s\n' "$workspace_dir" >&2
+        fusermount -uz "$workspace_dir"
     fi
-
-    printf 'WARN: nettoyage d’un ancien montage rclone inaccessible : %s\n' "$workspace_dir" >&2
-    fusermount -uz "$workspace_dir"
 elif [ -n "$mounted_fs" ]; then
     printf 'ERROR: le point est déjà utilisé par un système de fichiers %s : %s\n' "$mounted_fs" "$workspace_dir" >&2
     exit 1

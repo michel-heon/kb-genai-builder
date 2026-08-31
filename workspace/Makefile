@@ -24,8 +24,9 @@ CODEBIO_ENTRY_OUTPUT_DIR ?= $(KB_GENAI_BUILDER_CODEBIO_ENTRY_OUTPUT_DIR)
 CODEBIO_ENTRY_MARKDOWN ?= $(CODEBIO_ENTRY_OUTPUT_DIR)/$(CODEBIO_ENTRY).md
 CODEBIO_INDEX_RESOLUTIONS ?= $(KB_GENAI_BUILDER_CODEBIO_INDEX_RESOLUTIONS)
 CODEBIO_FAILURE_LIST ?= $(KB_GENAI_BUILDER_CODEBIO_FAILURE_LIST)
+CODEBIO_FORCE ?= false
 
-.PHONY: help markdown codebio-table-of-contents-markdown codebio-entry-markdown codebio-%-entries-markdown neosante-article-markdown neosante-articles-markdown
+.PHONY: help markdown codebio-table-of-contents-markdown codebio-entry-markdown codebio-all-entries-markdown codebio-%-entries-markdown neosante-article-markdown neosante-articles-markdown
 
 help:
 	@printf '%s\n' \
@@ -34,6 +35,7 @@ help:
 		'                                     (5 transformations parallèles maximum)' \
 		'  codebio-table-of-contents-markdown Transformer la table des matières CodeBio avec le transformateur dédié' \
 		'  codebio-entry-markdown             Extraire une entrée CodeBio (défaut : Amylase)' \
+		'  codebio-all-entries-markdown        Extraire toutes les entrées CodeBio, lettre par lettre' \
 		'  codebio-<lettre>-entries-markdown  Extraire toutes les entrées CodeBio commençant par <lettre> (ex. codebio-b-entries-markdown) et lister les échecs' \
 		'                                     ($(CODEBIO_PARALLEL_JOBS) extractions parallèles maximum)' \
 		'  neosante-article-markdown          Extraire par IA un PDF nommé avec PDF_NAME=<fichier.pdf>' \
@@ -53,6 +55,7 @@ help:
 		'  CODEBIO_ENTRY_MARKDOWN=<fichier>        Surcharge ponctuelle de la cible calculée' \
 		'  CODEBIO_INDEX_RESOLUTIONS=<fichier>     Registre des renvois CodeBio vérifiés' \
 		'  CODEBIO_FAILURE_LIST=<fichier>          Base du journal d’échecs ; les lots ajoutent -<LETTRE> avant .md' \
+		'  CODEBIO_FORCE=true                      Régénérer les entrées même si leurs dépendances sont à jour' \
 		'  PDF_NAME=<fichier.pdf>                  Requis par neosante-article-markdown'
 
 markdown:
@@ -79,30 +82,53 @@ codebio-entry-markdown:
 	@test -f "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" || { printf 'ERROR: table des matières CodeBio introuvable : %s\n' "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" >&2; exit 2; }
 	@test -f "$(CODEBIO_ENTRY_STRUCTURE)" || { printf 'ERROR: référentiel structurel CodeBio introuvable : %s\n' "$(CODEBIO_ENTRY_STRUCTURE)" >&2; exit 2; }
 	@test -z "$(CODEBIO_INDEX_RESOLUTIONS)" || test -f "$(CODEBIO_INDEX_RESOLUTIONS)" || { printf 'ERROR: registre des résolutions CodeBio introuvable : %s\n' "$(CODEBIO_INDEX_RESOLUTIONS)" >&2; exit 2; }
-	@$(MAKE) -s -C "$(PROJECT_ROOT)" package
+	@if [ "$(CODEBIO_SKIP_PACKAGE)" != "true" ]; then $(MAKE) -s -C "$(PROJECT_ROOT)" package; fi
 	@$(JAVA_BIN) -jar "$(PROJECT_ROOT)/target/kb-genai-builder.jar" extract-codebio-entry "$(CODEBIO_DICTIONARY_PDF)" "$(CODEBIO_ENTRY)" --table-of-contents "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" --structure "$(CODEBIO_ENTRY_STRUCTURE)" --output "$(CODEBIO_ENTRY_MARKDOWN)" $(if $(CODEBIO_INDEX_RESOLUTIONS),--index-resolutions "$(CODEBIO_INDEX_RESOLUTIONS)") $(if $(CODEBIO_FAILURE_LIST),--failure-list "$(CODEBIO_FAILURE_LIST)")
 
+# Traite toutes les sections alphabétiques réellement présentes dans la table des matières.
+# La compilation est faite une seule fois ; les lettres sont séquentielles et chaque lettre conserve
+# son parallélisme interne ainsi que son propre journal d'échecs.
+codebio-all-entries-markdown:
+	@test -f "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" || { printf 'ERROR: table des matières CodeBio introuvable : %s\n' "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" >&2; exit 2; }
+	@$(MAKE) -s -C "$(PROJECT_ROOT)" package
+	@letters="$$(sed -n 's/^## \([[:alpha:]]\)$$/\1/p' "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)")"; \
+		test -n "$$letters" || { printf '%s\n' 'ERROR: aucune section alphabétique CodeBio trouvée.' >&2; exit 2; }; \
+		for letter in $$letters; do \
+			printf 'Extraction CodeBio — lettre %s\n' "$$letter"; \
+			$(MAKE) -s -C "$(MAKEFILE_DIR)" "codebio-$$letter-entries-markdown" CODEBIO_SKIP_PACKAGE=true CODEBIO_FORCE="$(CODEBIO_FORCE)" || exit $$?; \
+		done
+
+# Règle générique : « codebio-x-entries-markdown » traite la section « ## X » de la table des matières.
+# $* est la lettre demandée, normalisée en majuscule ; chaque terme devient un Markdown dans entries/X.
+# Les extractions sont parallélisées (CODEBIO_PARALLEL_JOBS), mais chaque lot écrit son propre journal
+# echecs-extraction-X.md afin que les échecs restent traçables sans être écrasés par le lot suivant.
+# Elle délègue chaque terme à codebio-entry-markdown : cette règle unitaire est l’unique point d’appel au JAR.
 codebio-%-entries-markdown: CODEBIO_LETTER = $(shell printf '%s' '$*' | tr '[:lower:]' '[:upper:]')
 codebio-%-entries-markdown: CODEBIO_LETTER_FAILURE_LIST = $(CODEBIO_FAILURE_LIST:.md=-$(CODEBIO_LETTER).md)
 codebio-%-entries-markdown:
 	@test -n "$(CODEBIO_LETTER)" || { printf '%s\n' 'ERROR: précisez une lettre, ex. codebio-b-entries-markdown.' >&2; exit 2; }
-	@test -f "$(CODEBIO_DICTIONARY_PDF)" || { printf 'ERROR: dictionnaire CodeBio introuvable : %s\n' "$(CODEBIO_DICTIONARY_PDF)" >&2; exit 2; }
 	@test -f "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" || { printf 'ERROR: table des matières CodeBio introuvable : %s\n' "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" >&2; exit 2; }
-	@test -f "$(CODEBIO_ENTRY_STRUCTURE)" || { printf 'ERROR: référentiel structurel CodeBio introuvable : %s\n' "$(CODEBIO_ENTRY_STRUCTURE)" >&2; exit 2; }
-	@test -z "$(CODEBIO_INDEX_RESOLUTIONS)" || test -f "$(CODEBIO_INDEX_RESOLUTIONS)" || { printf 'ERROR: registre des résolutions CodeBio introuvable : %s\n' "$(CODEBIO_INDEX_RESOLUTIONS)" >&2; exit 2; }
 	@test -n "$(CODEBIO_FAILURE_LIST)" || { printf '%s\n' 'ERROR: CODEBIO_FAILURE_LIST doit être défini dans le profil.' >&2; exit 2; }
-	@$(MAKE) -s -C "$(PROJECT_ROOT)" package
+	@if [ "$(CODEBIO_SKIP_PACKAGE)" != "true" ]; then $(MAKE) -s -C "$(PROJECT_ROOT)" package; fi
 	@mkdir -p "$(CODEBIO_ENTRY_OUTPUT_DIR)/$(CODEBIO_LETTER)" "$$(dirname "$(CODEBIO_LETTER_FAILURE_LIST)")"
 	@: > "$(CODEBIO_LETTER_FAILURE_LIST)"
 	@printf '%s\n\n' '# Échecs d’extraction CodeBio — entrées $(CODEBIO_LETTER)' >> "$(CODEBIO_LETTER_FAILURE_LIST)"
 	@sed -n '/^## $(CODEBIO_LETTER)$$/,/^## /{s/^- \(.*\) — p\. [0-9][0-9]*$$/\1/p;}' "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" | tr '\n' '\0' | xargs -0 -r -P "$(CODEBIO_PARALLEL_JOBS)" -n 1 sh -c '\
 		term="$$1"; \
 		output="$(CODEBIO_ENTRY_OUTPUT_DIR)/$(CODEBIO_LETTER)/$$term.md"; \
+		stale=true; \
 		if [ -f "$$output" ]; then \
+			stale=false; \
+			for dependency in "$(CODEBIO_DICTIONARY_PDF)" "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" "$(CODEBIO_ENTRY_STRUCTURE)" "$(CODEBIO_INDEX_RESOLUTIONS)" "$(MAKEFILE_DIR)Makefile"; do \
+				if [ -n "$$dependency" ] && [ "$$dependency" -nt "$$output" ]; then stale=true; break; fi; \
+			done; \
+			if [ "$$stale" = false ] && find "$(PROJECT_ROOT)/src/main/java/net/cotechnoe/kb/genai/document/codebio" "$(PROJECT_ROOT)/src/main/java/net/cotechnoe/kb/genai/cli/ExtractCodeBioDictionaryEntryCommand.java" -type f -newer "$$output" -print -quit | grep -q .; then stale=true; fi; \
+		fi; \
+		if [ -f "$$output" ] && [ "$(CODEBIO_FORCE)" != "true" ] && [ "$$stale" = false ]; then \
 			printf "%s" "Déjà extraite : $$output"; printf "\n"; \
 			exit 0; \
 		fi; \
-		$(JAVA_BIN) -jar "$(PROJECT_ROOT)/target/kb-genai-builder.jar" extract-codebio-entry "$(CODEBIO_DICTIONARY_PDF)" "$$term" --table-of-contents "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" --structure "$(CODEBIO_ENTRY_STRUCTURE)" --output "$$output" $(if $(CODEBIO_INDEX_RESOLUTIONS),--index-resolutions "$(CODEBIO_INDEX_RESOLUTIONS)") --failure-list "$(CODEBIO_LETTER_FAILURE_LIST)" || true \
+		$(MAKE) -s -C "$(MAKEFILE_DIR)" codebio-entry-markdown CODEBIO_SKIP_PACKAGE=true CODEBIO_ENTRY="$$term" CODEBIO_ENTRY_MARKDOWN="$$output" CODEBIO_FAILURE_LIST="$(CODEBIO_LETTER_FAILURE_LIST)" || true \
 	' sh
 	@if [ "$$(wc -l < "$(CODEBIO_LETTER_FAILURE_LIST)")" -eq 2 ]; then rm "$(CODEBIO_LETTER_FAILURE_LIST)"; fi
 

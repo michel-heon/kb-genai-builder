@@ -7,6 +7,9 @@ EXECUTABLE_JAR := target/kb-genai-builder.jar
 JAVA_BIN ?= java
 MAVEN_BIN ?= mvn
 PYTHON_BIN ?= python3
+RCLONE_BIN ?= rclone
+CODEBIO_ENTRIES_SOURCE ?= workspace/KB-WORK/entries
+NEOSANTE_ENTRIES_TARGET ?= workspace/08-KB-NéoSanté/markdown/entries
 JAVA_SOURCES := $(shell find src/main/java src/test/java -type f -name '*.java' 2>/dev/null)
 # La configuration générée est lue à l'exécution, sans nécessiter de reconstruire le JAR.
 # Le package Maven ne redémarre donc que lorsque le code Java (ou le pom Maven) est plus récent.
@@ -16,7 +19,7 @@ REQUESTED_BOOTSTRAP_ENVIRONMENT := $(firstword $(filter $(ENVIRONMENT_PROFILES),
 
 -include $(GENERATED_MAKE_CONFIG)
 
-.PHONY: bootstrap bootstrap-bash bootstrap-java bootstrap-make bootstrap-maven bootstrap-python build config-check generated-config help pdf-to-markdown run-pdf-to-markdown run-extract-neosante-relevant-articles teams-app-sso-configure teams-app-publish test workspace-mount $(ENVIRONMENT_PROFILES) bootstrap-%
+.PHONY: bootstrap bootstrap-bash bootstrap-java bootstrap-make bootstrap-maven bootstrap-python build codebio-entries-sync config-check generated-config help pdf-to-markdown run-pdf-to-markdown run-extract-neosante-relevant-articles teams-app-sso-configure teams-app-publish test workspace-mount $(ENVIRONMENT_PROFILES) bootstrap-%
 
 help:
 	@printf '%s\n' \
@@ -29,6 +32,8 @@ help:
 		'  bootstrap-make   Vérifier Make' \
 		'  bootstrap-maven  Vérifier Maven' \
 		'  build            Transformer un PDF déclaré par PDF en Markdown' \
+		'  codebio-entries-sync Synchroniser les entrées CodeBio vers le montage Néosanté avec rclone' \
+		'                       variables: CODEBIO_ENTRIES_SOURCE=<source> NEOSANTE_ENTRIES_TARGET=<cible> RCLONE_BIN=<binaire>' \
 		'  config-check     Valider la configuration rclone sans monter le dossier' \
 		'  package          Construire le JAR exécutable' \
 		'  pdf-to-markdown  Alias de build; variables: PDF=<source> OUTPUT=<cible>' \
@@ -92,6 +97,14 @@ teams-app-sso-configure: bootstrap-python
 
 teams-app-publish: bootstrap-python
 	@$(PYTHON_BIN) ./scripts/teams-app-publish.py $(if $(DRY_RUN),--dry-run)
+
+# rclone sync rend la cible identique à la source : les fichiers supprimés de la source sont supprimés de la cible.
+# La cible est normalement disponible après « make workspace-mount ».
+codebio-entries-sync:
+	@command -v "$(RCLONE_BIN)" >/dev/null 2>&1 || { printf 'ERROR: rclone est introuvable : %s\\n' "$(RCLONE_BIN)" >&2; exit 1; }
+	@test -d "$(CODEBIO_ENTRIES_SOURCE)" || { printf 'ERROR: répertoire source CodeBio introuvable : %s\\n' "$(CODEBIO_ENTRIES_SOURCE)" >&2; exit 2; }
+	@test -d "$(NEOSANTE_ENTRIES_TARGET)" || { printf 'ERROR: répertoire cible Néosanté introuvable : %s (exécutez « make workspace-mount »)\\n' "$(NEOSANTE_ENTRIES_TARGET)" >&2; exit 2; }
+	@$(RCLONE_BIN) sync "$(CODEBIO_ENTRIES_SOURCE)" "$(NEOSANTE_ENTRIES_TARGET)" --create-empty-src-dirs
 
 config-check:
 	@./scripts/workspace-mount.sh --check

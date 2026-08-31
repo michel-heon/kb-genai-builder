@@ -21,7 +21,9 @@ CODEBIO_DICTIONARY_PDF ?= $(KB_GENAI_BUILDER_CODEBIO_DICTIONARY_PDF)
 CODEBIO_ENTRY_STRUCTURE ?= $(KB_GENAI_BUILDER_CODEBIO_ENTRY_STRUCTURE)
 CODEBIO_ENTRY ?= $(KB_GENAI_BUILDER_CODEBIO_ENTRY)
 CODEBIO_ENTRY_OUTPUT_DIR ?= $(KB_GENAI_BUILDER_CODEBIO_ENTRY_OUTPUT_DIR)
-CODEBIO_ENTRY_MARKDOWN ?= $(CODEBIO_ENTRY_OUTPUT_DIR)/$(CODEBIO_ENTRY).md
+# Les termes sont des libellés source : « / » doit rester dans le titre, mais pas créer de sous-répertoire.
+CODEBIO_ENTRY_FILENAME := $(subst /,_,$(CODEBIO_ENTRY))
+CODEBIO_ENTRY_MARKDOWN ?= $(CODEBIO_ENTRY_OUTPUT_DIR)/$(CODEBIO_ENTRY_FILENAME).md
 CODEBIO_INDEX_RESOLUTIONS ?= $(KB_GENAI_BUILDER_CODEBIO_INDEX_RESOLUTIONS)
 CODEBIO_FAILURE_LIST ?= $(KB_GENAI_BUILDER_CODEBIO_FAILURE_LIST)
 CODEBIO_FORCE ?= false
@@ -115,7 +117,8 @@ codebio-%-entries-markdown:
 	@printf '%s\n\n' '# Échecs d’extraction CodeBio — entrées $(CODEBIO_LETTER)' >> "$(CODEBIO_LETTER_FAILURE_LIST)"
 	@sed -n '/^## $(CODEBIO_LETTER)$$/,/^## /{s/^- \(.*\) — p\. [0-9][0-9]*$$/\1/p;}' "$(CODEBIO_TABLE_OF_CONTENTS_MARKDOWN)" | tr '\n' '\0' | xargs -0 -r -P "$(CODEBIO_PARALLEL_JOBS)" -n 1 sh -c '\
 		term="$$1"; \
-		output="$(CODEBIO_ENTRY_OUTPUT_DIR)/$(CODEBIO_LETTER)/$$term.md"; \
+		filename="$$(printf "%s" "$$term" | tr "/" "_")"; \
+		output="$(CODEBIO_ENTRY_OUTPUT_DIR)/$(CODEBIO_LETTER)/$$filename.md"; \
 		stale=true; \
 		if [ -f "$$output" ]; then \
 			stale=false; \

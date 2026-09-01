@@ -180,7 +180,14 @@ def main() -> int:
 
         validate_tools()
         values, config_paths = load_configuration(args.environment)
-        required = ("KB_GENAI_BUILDER_WORKSPACE_DIR", "KB_GENAI_BUILDER_MARKDOWN_INPUT_DIR", "KB_GENAI_BUILDER_MARKDOWN_OUTPUT_DIR", "KB_GENAI_BUILDER_RCLONE_REMOTE", "KB_GENAI_BUILDER_RCLONE_READ_ONLY")
+        required = (
+            "KB_GENAI_BUILDER_WORKSPACE_DIR",
+            "KB_GENAI_BUILDER_MARKDOWN_INPUT_DIR",
+            "KB_GENAI_BUILDER_MARKDOWN_OUTPUT_DIR",
+            "KB_GENAI_BUILDER_MARKDOWN_LOG_DIR",
+            "KB_GENAI_BUILDER_RCLONE_REMOTE",
+            "KB_GENAI_BUILDER_RCLONE_READ_ONLY",
+        )
         if args.environment == "dico":
             required += (
                 "KB_GENAI_BUILDER_CODEBIO_WORK_DIR",
@@ -204,11 +211,13 @@ def main() -> int:
         workspace = resolve_path(values["KB_GENAI_BUILDER_WORKSPACE_DIR"])
         input_dir = resolve_path(values["KB_GENAI_BUILDER_MARKDOWN_INPUT_DIR"])
         output_dir = resolve_path(values["KB_GENAI_BUILDER_MARKDOWN_OUTPUT_DIR"])
+        log_dir = resolve_path(values["KB_GENAI_BUILDER_MARKDOWN_LOG_DIR"])
         if values["KB_GENAI_BUILDER_RCLONE_READ_ONLY"] == "true" and (Path(output_dir) == Path(workspace) or Path(workspace) in Path(output_dir).parents):
             raise RuntimeError("KB_GENAI_BUILDER_MARKDOWN_OUTPUT_DIR doit être hors du workspace monté en lecture seule.")
         values["KB_GENAI_BUILDER_WORKSPACE_DIR"] = workspace
         values["KB_GENAI_BUILDER_MARKDOWN_INPUT_DIR"] = input_dir
         values["KB_GENAI_BUILDER_MARKDOWN_OUTPUT_DIR"] = output_dir
+        values["KB_GENAI_BUILDER_MARKDOWN_LOG_DIR"] = log_dir
         if args.environment == "dico":
             for name in (
                 "KB_GENAI_BUILDER_CODEBIO_WORK_DIR",
@@ -225,6 +234,7 @@ def main() -> int:
             Path(values["KB_GENAI_BUILDER_CODEBIO_ENTRY_OUTPUT_DIR"]).mkdir(parents=True, exist_ok=True)
         Path(workspace).mkdir(parents=True, exist_ok=True)
         Path(output_dir).mkdir(parents=True, exist_ok=True)
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
         write_generated(values)
         print("Bootstrap terminé : prérequis et configuration locale validés.")
         return 0

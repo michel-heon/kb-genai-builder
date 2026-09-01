@@ -13,12 +13,14 @@ import picocli.CommandLine.Parameters;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.Callable;
+import java.util.stream.Stream;
 
 @Command(
     name = "extract-neosante-relevant-articles",
@@ -81,6 +83,19 @@ public final class ExtractNeosanteRelevantArticlesCommand implements Callable<In
 
     private static void write(List<SelectedArticle> articles, Path outputDirectory) throws IOException {
         Files.createDirectories(outputDirectory);
+        try (Stream<Path> existingFiles = Files.list(outputDirectory)) {
+            existingFiles
+                    .filter(path -> path.getFileName().toString().matches("pages-\\d+-\\d+\\.md"))
+                    .forEach(path -> {
+                        try {
+                            Files.delete(path);
+                        } catch (IOException exception) {
+                            throw new UncheckedIOException(exception);
+                        }
+                    });
+        } catch (UncheckedIOException exception) {
+            throw exception.getCause();
+        }
         NeosanteArticleMarkdownTranscriber transcriber = new NeosanteArticleMarkdownTranscriber();
         for (SelectedArticle article : articles) {
             String filename = "pages-" + article.candidate().startPage() + "-" + article.candidate().endPage() + ".md";

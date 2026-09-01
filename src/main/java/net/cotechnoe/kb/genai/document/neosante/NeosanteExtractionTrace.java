@@ -23,25 +23,28 @@ public interface NeosanteExtractionTrace {
 
     static NeosanteExtractionTrace standardOutput() {
         return new NeosanteExtractionTrace() {
+            private String sourceName = "inconnue";
+
             @Override
             public void extractionStarted(Path source, int pageCount) {
-                System.out.printf("[Néosanté] Source : %s (%d pages)%n", source.getFileName(), pageCount);
+                sourceName = source.getFileName().toString();
+                System.out.printf("[Néosanté][%s] Source : %d pages%n", sourceName, pageCount);
             }
 
             @Override
             public void pageClassified(int page, boolean relevant) {
-                System.out.printf("[Néosanté] Page %d : %s%n", page, relevant ? "retenue" : "ignorée");
+                System.out.printf("[Néosanté][%s] Page %d : %s%n", sourceName, page, relevant ? "retenue" : "ignorée");
             }
 
             @Override
             public void articleSelected(ArticleCandidate candidate) {
-                System.out.printf("[Néosanté] Article retenu : pages %d-%d%n",
-                        candidate.startPage(), candidate.endPage());
+                System.out.printf("[Néosanté][%s] Article retenu : pages %d-%d%n",
+                        sourceName, candidate.startPage(), candidate.endPage());
             }
 
             @Override
             public void extractionCompleted(int selectedCount) {
-                System.out.printf("[Néosanté] Extraction terminée : %d article(s) retenu(s)%n", selectedCount);
+                System.out.printf("[Néosanté][%s] Extraction terminée : %d article(s) retenu(s)%n", sourceName, selectedCount);
             }
         };
     }

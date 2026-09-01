@@ -116,6 +116,62 @@ class NeosanteArticleMarkdownTranscriberTest {
     }
 
     @Test
+    void restoresParagraphsMarkedByPdfIndentation() {
+        Path source = temporaryDirectory.resolve("revue.pdf");
+        SelectedArticle article = new SelectedArticle(
+                new ArticleCandidate(source, 3, 3, "Premier paragraphe.\n  Deuxième paragraphe.\n  Troisième paragraphe."),
+                new ArticleSelection(true, "Un article", List.of("biologie totale"), "test"));
+
+        String markdown = new NeosanteArticleMarkdownTranscriber().transcribe(article);
+
+        assertEquals("""
+                ---
+                source: revue.pdf
+                pages: 3-3
+                topics: "biologie totale"
+                selection: "test"
+                ---
+
+                # Un article
+
+                Premier paragraphe.
+
+                  Deuxième paragraphe.
+
+                  Troisième paragraphe.
+                """, markdown);
+    }
+
+    @Test
+    void formatsUppercaseSectionHeadingsAndDropsTheirPageNumber() {
+        Path source = temporaryDirectory.resolve("revue.pdf");
+        SelectedArticle article = new SelectedArticle(
+                new ArticleCandidate(source, 17, 17, "17\nCAHIER DÉCODAGES\nAVERTISSEMENTS\n1. Texte utile.\nLE CONFLIT BIOLOGIQUE\nET LA CYSTITE\nLe contenu de l'article."),
+                new ArticleSelection(true, "Un article", List.of("biologie totale"), "test"));
+
+        String markdown = new NeosanteArticleMarkdownTranscriber().transcribe(article);
+
+        assertEquals("""
+                ---
+                source: revue.pdf
+                pages: 17-17
+                topics: "biologie totale"
+                selection: "test"
+                ---
+
+                # Un article
+
+                ## CAHIER DÉCODAGES AVERTISSEMENTS
+
+                1. Texte utile.
+
+                ## LE CONFLIT BIOLOGIQUE ET LA CYSTITE
+
+                Le contenu de l'article.
+                """, markdown);
+    }
+
+    @Test
     void removesPdfProductionMarkers() {
         Path source = temporaryDirectory.resolve("revue.pdf");
         SelectedArticle article = new SelectedArticle(
